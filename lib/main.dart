@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import 'package:intl/date_symbol_data_local.dart';
+import 'timer.dart';
+import 'package:flutter_colorpicker/material_picker.dart';
 
 import 'dart:async';
 import 'package:flutter_sound/flutter_sound.dart';
@@ -35,6 +37,8 @@ class _MyAppState extends State<MyApp> {
   double sliderCurrentPosition = 0.0;
   double maxDuration = 1.0;
 
+  Color currentColor;
+
 
   @override
   void initState() {
@@ -42,6 +46,7 @@ class _MyAppState extends State<MyApp> {
     flutterSound = new FlutterSound();
     flutterSound.setDbPeakLevelUpdate(0.2);
     flutterSound.setDbLevelEnabled(true);
+    currentColor = Colors.red;
     initializeDateFormatting();
   }
 
@@ -166,7 +171,6 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-
     return MaterialApp(
         debugShowCheckedModeBanner: false,
         themeMode: _themeMode,
@@ -176,16 +180,36 @@ class _MyAppState extends State<MyApp> {
         ),
         darkTheme: ThemeData(
           brightness: Brightness.dark,
-
         ),
         home: Scaffold(
           appBar: AppBar(
-            title: FlatButton(
-                onPressed: () => this.setState(() {
+              title: GestureDetector(
+                onLongPress: () => this.setState(() {
                   _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
                 }),
-                child: Text('Audio Recorder', style: TextStyle(fontSize: 18),)
-            ),
+                child: Builder(builder: (context) => FlatButton(
+                  child: Text('Audio Recorder', style: TextStyle(fontSize: 18),),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (BuildContext context) {
+                        return AlertDialog(
+                          titlePadding: const EdgeInsets.all(0.0),
+                          contentPadding: const EdgeInsets.all(0.0),
+                          content: SingleChildScrollView(
+                            child: MaterialPicker(
+                              pickerColor: currentColor,
+                              onColorChanged: (Color color) => setState(() => currentColor = color),
+                              enableLabel: true,
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+                ),
+              )
           ),
           body: Column(
               children: <Widget>[
@@ -204,7 +228,7 @@ class _MyAppState extends State<MyApp> {
                           alignment: Alignment(0.0, 0.0),
                           child: FractionallySizedBox(
                             heightFactor: peak,
-                            child: Container(color: Colors.red,),
+                            child: Container(color: currentColor,),
                           ),
                         );
                       },
@@ -212,14 +236,7 @@ class _MyAppState extends State<MyApp> {
                 ),
                 Expanded(
                     flex: 1,
-                    child: Center(child:
-                    Text(
-                      this._recorderTxt,
-                      style: TextStyle(
-                        fontSize: 40.0,
-                      ),
-                    ),
-                    )
+                    child: Timer(this._recorderTxt)
                 ),
                 Expanded(
                   flex: 1,
@@ -235,7 +252,7 @@ class _MyAppState extends State<MyApp> {
                         }
                         this.stopRecorder();
                       },
-                      fillColor: Colors.red,
+                      fillColor: currentColor,
                       child: this._isRecording ? Icon(Icons.stop, size: 32) : Icon(Icons.mic, size: 32,),
                     ),
                   ),
