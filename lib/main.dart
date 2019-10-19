@@ -1,12 +1,14 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import 'package:intl/date_symbol_data_local.dart';
-import 'timer.dart';
 import 'package:flutter_colorpicker/material_picker.dart';
-
-import 'dart:async';
 import 'package:flutter_sound/flutter_sound.dart';
+import 'package:flutter_sound/android_encoder.dart';
+import 'package:flutter_sound/ios_quality.dart';
+import 'package:path_provider/path_provider.dart';
+import 'timer.dart';
 
 void main() {
   runApp(new MyApp());
@@ -38,11 +40,29 @@ class _MyAppState extends State<MyApp> {
   double maxDuration = 1.0;
 
   Color currentColor;
+  PageController pageController;
 
+  int _page = 0;
+
+  List<String> fileNames = List();
+  String audioFileEnding = Platform.isIOS ? '.m4a' : '.mp4';
 
   @override
   void initState() {
     super.initState();
+    Future<Directory> promise = Platform.isIOS ? getTemporaryDirectory() : getExternalStorageDirectory();
+    promise.then((directory) {
+      List<FileSystemEntity> files = directory.listSync();
+      setState(() {
+        files.forEach((file) {
+          if (file.path.endsWith(audioFileEnding)) {
+            fileNames.add(file.path);
+          }
+        });
+      });
+    });
+
+    pageController = PageController();
     flutterSound = new FlutterSound();
     flutterSound.setDbPeakLevelUpdate(0.2);
     flutterSound.setDbLevelEnabled(true);
@@ -50,9 +70,37 @@ class _MyAppState extends State<MyApp> {
     initializeDateFormatting();
   }
 
+  void navigationTapped(int page) {
+    //Animating Page
+    pageController.jumpToPage(page);
+  }
+
+  void onPageChanged(int page) {
+    setState(() {
+      this._page = page;
+    });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    pageController.dispose();
+  }
+
   void startRecorder() async {
     try {
-      String path = await flutterSound.startRecorder(Platform.isIOS ? 'ios.m4a' : 'android.mp4');
+      String fileName = DateTime.now().toString().split('.')[0] + audioFileEnding;
+      String path = await flutterSound.startRecorder(
+        fileName,
+        numChannels: 2,
+        bitRate: 128000,
+        androidEncoder: AndroidEncoder.AMR_NB,
+        androidAudioSource: AndroidAudioSource.MIC,
+        androidOutputFormat: AndroidOutputFormat.MPEG_4,
+        iosQuality: IosQuality.MEDIUM,
+      );
+
+
       print('startRecorder: $path');
 
       _recorderSubscription = flutterSound.onRecorderStateChanged.listen((e) {
@@ -68,11 +116,7 @@ class _MyAppState extends State<MyApp> {
       _dbPeakSubscription =
           flutterSound.onRecorderDbPeakChanged.listen((value) {
             print('new peak value: $value');
-            if (Platform.isIOS) {
-              value = 100.0 / 160.0 * (value ?? 1) / 100;  // normalize
-            } else {
-              value = 100.0 / 160.0 * (value ?? 1) / 100;  // normalize
-            }
+            value = 100.0 / 160.0 * (value ?? 1) / 100;  // normalize
             setState(() {
               _dbLevel = value;
               _recordingOverviewPeaks.insert(0, value);
@@ -211,53 +255,89 @@ class _MyAppState extends State<MyApp> {
                 ),
               )
           ),
-          body: Column(
-              children: <Widget>[
-                Expanded(
-                    flex: 2,
-                    child: ListView.builder(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      scrollDirection: Axis.horizontal,
-                      reverse: true,
-                      itemCount: _recordingOverviewPeaks.length,
-                      itemBuilder: (context, index) {
-                        double peak = _recordingOverviewPeaks[index];
-                        return Container(
-                          margin: EdgeInsets.symmetric(horizontal: 2),
-                          constraints: BoxConstraints.expand(width: 2),
-                          alignment: Alignment(0.0, 0.0),
-                          child: FractionallySizedBox(
-                            heightFactor: peak,
-                            child: Container(color: currentColor,),
+          body: PageView(
+            controller: pageController,
+            onPageChanged: onPageChanged,
+            physics: ClampingScrollPhysics(),
+            children: [
+              Container(
+                child: Column(
+                    children: <Widget>[
+                      Expanded(
+                          flex: 2,
+                          child: ListView.builder(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            scrollDirection: Axis.horizontal,
+                            reverse: true,
+                            itemCount: _recordingOverviewPeaks.length,
+                            itemBuilder: (context, index) {
+                              double peak = _recordingOverviewPeaks[index];
+                              return Container(
+                                margin: EdgeInsets.symmetric(horizontal: 2),
+                                constraints: BoxConstraints.expand(width: 2),
+                                alignment: Alignment(0.0, 0.0),
+                                child: FractionallySizedBox(
+                                  heightFactor: peak,
+                                  child: Container(color: currentColor,),
+                                ),
+                              );
+                            },
+                          )
+                      ),
+                      Expanded(
+                          flex: 1,
+                          child: Timer(this._recorderTxt)
+                      ),
+                      Expanded(
+                        flex: 1,
+                        child: Container(
+                          width: 100,
+                          height: 100,
+                          child: new RawMaterialButton(
+                            shape: new CircleBorder(),
+                            elevation: 1.0,
+                            onPressed: () {
+                              if (!this._isRecording) {
+                                return this.startRecorder();
+                              }
+                              this.stopRecorder();
+                            },
+                            fillColor: currentColor,
+                            child: this._isRecording ? Icon(Icons.stop, size: 32) : Icon(Icons.mic, size: 32,),
                           ),
-                        );
-                      },
-                    )
+                        ),
+                      )
+                    ]
                 ),
-                Expanded(
-                    flex: 1,
-                    child: Timer(this._recorderTxt)
+              ),
+              Container(
+                  child: ListView.builder(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    itemCount: fileNames.length,
+                    itemBuilder: (context, index) {
+                      return Container(
+                        constraints: BoxConstraints.expand(height: 80),
+                        alignment: Alignment(-1.0, 0.0),
+                        child: Text(fileNames[index].split('/').last)
+                      );
+                    },
+                  )
+              ),
+            ],),
+          bottomNavigationBar: BottomNavigationBar(
+              items: const <BottomNavigationBarItem>[
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.record_voice_over),
+                  title: Text('Record'),
                 ),
-                Expanded(
-                  flex: 1,
-                  child: Container(
-                    width: 100,
-                    height: 100,
-                    child: new RawMaterialButton(
-                      shape: new CircleBorder(),
-                      elevation: 1.0,
-                      onPressed: () {
-                        if (!this._isRecording) {
-                          return this.startRecorder();
-                        }
-                        this.stopRecorder();
-                      },
-                      fillColor: currentColor,
-                      child: this._isRecording ? Icon(Icons.stop, size: 32) : Icon(Icons.mic, size: 32,),
-                    ),
-                  ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.headset),
+                  title: Text('Listen'),
                 )
-              ]
+              ],
+              currentIndex: _page,
+              selectedItemColor: currentColor,
+              onTap: navigationTapped
           ),
         )
     );
