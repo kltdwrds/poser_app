@@ -22,7 +22,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _isRecording = false;
   String _path;
-  // bool _isPlaying = false;
+  bool _isPlaying = false;
   StreamSubscription _recorderSubscription;
   StreamSubscription _dbPeakSubscription;
   StreamSubscription _playerSubscription;
@@ -53,12 +53,14 @@ class _MyAppState extends State<MyApp> {
     Future<Directory> promise = Platform.isIOS ? getTemporaryDirectory() : getExternalStorageDirectory();
     promise.then((directory) {
       List<FileSystemEntity> files = directory.listSync();
+      files.sort((a, b) => a.statSync().changed.compareTo(b.statSync().changed));
       setState(() {
         files.forEach((file) {
           if (file.path.endsWith(audioFileEnding)) {
-            fileNames.add(file.path);
+            fileNames.insert(0, file.path);
           }
         });
+        _path = fileNames.first;
       });
     });
 
@@ -132,10 +134,9 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  void stopRecorder() async{
+  void stopRecorder() async {
     try {
       String result = await flutterSound.stopRecorder();
-      print('stopRecorder: $result');
 
       if (_recorderSubscription != null) {
         _recorderSubscription.cancel();
@@ -148,30 +149,35 @@ class _MyAppState extends State<MyApp> {
 
       this.setState(() {
         this._isRecording = false;
+        this.fileNames.insert(0, Uri.decodeFull(result));
       });
     } catch (err) {
       print('stopRecorder error: $err');
     }
   }
 
-  void startPlayer() async{
+  void startPlayer(String path) async {
     try {
-      String path = await flutterSound.startPlayer(this._path);
+      if (_isPlaying) {
+        await this.stopPlayer();
+        setState(() {
+          _isPlaying = false;
+        });
+      }
+      String result = await flutterSound.startPlayer(Uri.encodeFull(path));
       await flutterSound.setVolume(1.0);
-      print('startPlayer: $path');
 
       _playerSubscription = flutterSound.onPlayerStateChanged.listen((e) {
         if (e != null) {
           sliderCurrentPosition = e.currentPosition;
           maxDuration = e.duration;
 
-
           DateTime date = new DateTime.fromMillisecondsSinceEpoch(
               e.currentPosition.toInt(),
               isUtc: true);
           String txt = DateFormat('mm:ss:SS', 'en_GB').format(date);
           this.setState(() {
-            //this._isPlaying = true;
+            this._isPlaying = true;
             this._playerTxt = txt.substring(0, 8);
           });
         }
@@ -181,36 +187,43 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  void stopPlayer() async{
+  Future<void> stopPlayer() async {
     try {
       String result = await flutterSound.stopPlayer();
-      print('stopPlayer: $result');
       if (_playerSubscription != null) {
         _playerSubscription.cancel();
         _playerSubscription = null;
       }
 
       this.setState(() {
-        //this._isPlaying = false;
+        this._isPlaying = false;
+        this.sliderCurrentPosition = 0.0;
       });
     } catch (err) {
       print('error: $err');
     }
   }
 
-  void pausePlayer() async{
-    String result = await flutterSound.pausePlayer();
-    print('pausePlayer: $result');
+  void pausePlayer() async {
+    if (_isPlaying) {
+      String result = await flutterSound.pausePlayer();
+      setState(() {
+        _isPlaying = false;
+      });
+    }
   }
 
-  void resumePlayer() async{
-    String result = await flutterSound.resumePlayer();
-    print('resumePlayer: $result');
+  void resumePlayer() async {
+    if (!_isPlaying) {
+      String result = await flutterSound.resumePlayer();
+      setState(() {
+        _isPlaying = true;
+      });
+    }
   }
 
-  void seekToPlayer(int milliSecs) async{
+  void seekToPlayer(int milliSecs) async {
     String result = await flutterSound.seekToPlayer(milliSecs);
-    print('seekToPlayer: $result');
   }
 
   @override
@@ -311,19 +324,104 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               Container(
-                  child: ListView.builder(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: fileNames.length,
-                    itemBuilder: (context, index) {
-                      return Container(
-                        constraints: BoxConstraints.expand(height: 80),
-                        alignment: Alignment(-1.0, 0.0),
-                        child: Text(fileNames[index].split('/').last)
-                      );
-                    },
-                  )
+                child: Column(
+                    children: <Widget>[
+                      Expanded(
+                        flex: 1,
+                        child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Row(
+                                children: <Widget>[
+                                  Container(
+                                    width: 56.0,
+                                    height: 56.0,
+                                    child: ClipOval(
+                                      child: FlatButton(
+                                          onPressed: () {
+                                            if (!_isPlaying) {
+                                              startPlayer(_path);
+                                            }
+                                          },
+                                          padding: EdgeInsets.all(8.0),
+                                          child: Icon(Icons.play_arrow)
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 56.0,
+                                    height: 56.0,
+                                    child: ClipOval(
+                                      child: FlatButton(
+                                          onPressed: () {
+                                            pausePlayer();
+                                          },
+                                          padding: EdgeInsets.all(8.0),
+                                          child: Icon(Icons.pause)
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 56.0,
+                                    height: 56.0,
+                                    child: ClipOval(
+                                      child: FlatButton(
+                                          onPressed: () {
+                                            stopPlayer();
+                                          },
+                                          padding: EdgeInsets.all(8.0),
+                                          child: Icon(Icons.stop)
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                              ),
+                              Container(
+                                  height: 56.0,
+                                  child: Slider(
+                                      activeColor: currentColor,
+                                      inactiveColor: currentColor.withOpacity(.24),
+                                      value: sliderCurrentPosition,
+                                      min: 0.0,
+                                      max: maxDuration,
+                                      onChanged: (double value) async{
+                                        await flutterSound.seekToPlayer(value.toInt());
+                                      },
+                                      divisions: maxDuration.toInt()
+                                  )
+                              )
+                            ]
+                        ),
+                      ),
+                      Expanded(
+                          flex: 1,
+                          child: Container(
+                            color: Colors.white10,
+                            child: ListView.builder(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              itemCount: fileNames.length,
+                              itemBuilder: (context, index) {
+                                String path = fileNames[index];
+                                String fileName = path.split('/').last.split('.').first;
+                                return GestureDetector(
+                                    onTap: () => startPlayer(path),
+                                    child: Container(
+                                        constraints: BoxConstraints.expand(height: 80),
+                                        alignment: Alignment(-1.0, 0.0),
+                                        child: Text(fileName,
+                                          style: TextStyle(fontSize: 16),)
+                                    )
+                                );
+                              },
+                            ),)
+                      )
+                    ]
+                ),
               ),
-            ],),
+            ],
+          ),
           bottomNavigationBar: BottomNavigationBar(
               items: const <BottomNavigationBarItem>[
                 BottomNavigationBarItem(
