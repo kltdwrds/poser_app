@@ -60,7 +60,7 @@ class _MyAppState extends State<MyApp> {
             fileNames.insert(0, file.path);
           }
         });
-        _path = fileNames.first;
+        _path = fileNames.isNotEmpty ? fileNames.first : null;
       });
     });
 
